@@ -774,6 +774,87 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		json.NewEncoder(w).Encode(results)
 	})
 
+	// Handler for creating a group (optionally private: join approval, admin-only add/edit/send)
+	http.HandleFunc("/api/group/create", func(w http.ResponseWriter, r *http.Request) {
+		// Only allow POST requests
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Name          string   `json:"name"`
+			Participants  []string `json:"participants"`
+			Description   string   `json:"description"`
+			JoinApproval  bool     `json:"join_approval"`
+			AdminAddOnly  bool     `json:"admin_add_only"`
+			AdminEditOnly bool     `json:"admin_edit_only"`
+			AdminSendOnly bool     `json:"admin_send_only"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+			http.Error(w, "Name is required", http.StatusBadRequest)
+			return
+		}
+
+		participants := make([]types.JID, 0, len(req.Participants))
+		for _, p := range req.Participants {
+			jid, err := types.ParseJID(p)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("Invalid participant JID %s: %v", p, err), http.StatusBadRequest)
+				return
+			}
+			participants = append(participants, jid)
+		}
+
+		createReq := whatsmeow.ReqCreateGroup{
+			Name:                        req.Name,
+			Participants:                participants,
+			GroupLocked:                 types.GroupLocked{IsLocked: req.AdminEditOnly},
+			GroupAnnounce:               types.GroupAnnounce{IsAnnounce: req.AdminSendOnly},
+			GroupMembershipApprovalMode: types.GroupMembershipApprovalMode{IsJoinApprovalRequired: req.JoinApproval},
+		}
+		if req.AdminAddOnly {
+			createReq.MemberAddMode = types.GroupMemberAddModeAdmin
+		}
+
+		ctx := context.Background()
+		info, err := client.CreateGroup(ctx, createReq)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to create group: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		// The group exists from here on, so later failures are reported but don't fail the request
+		var warnings []string
+		if req.Description != "" {
+			if err := client.SetGroupDescription(ctx, info.JID, req.Description); err != nil {
+				warnings = append(warnings, fmt.Sprintf("description: %v", err))
+			}
+		}
+		inviteLink, err := client.GetGroupInviteLink(ctx, info.JID, false)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("invite link: %v", err))
+		}
+		current, err := client.GetGroupInfo(ctx, info.JID)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("group info: %v", err))
+			current = info
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"jid":             current.JID.String(),
+			"name":            current.Name,
+			"invite_link":     inviteLink,
+			"join_approval":   current.IsJoinApprovalRequired,
+			"member_add_mode": current.MemberAddMode,
+			"admin_edit_only": current.IsLocked,
+			"admin_send_only": current.IsAnnounce,
+			"participants":    len(current.Participants),
+			"warnings":        warnings,
+		})
+	})
+
 	// Handler for downloading media
 	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
