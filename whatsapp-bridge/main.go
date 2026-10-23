@@ -725,6 +725,50 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		})
 	})
 
+	// Handler for checking numbers on WhatsApp (resolves the real JID, e.g. Brazilian numbers with or without the 9th digit)
+	http.HandleFunc("/api/check", func(w http.ResponseWriter, r *http.Request) {
+		// Only allow POST requests
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Phones []string `json:"phones"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Phones) == 0 {
+			http.Error(w, "Phones are required", http.StatusBadRequest)
+			return
+		}
+
+		phones := make([]string, len(req.Phones))
+		for i, phone := range req.Phones {
+			if !strings.HasPrefix(phone, "+") {
+				phone = "+" + phone
+			}
+			phones[i] = phone
+		}
+
+		resp, err := client.IsOnWhatsApp(context.Background(), phones)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to check numbers: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		type checkResult struct {
+			Query      string `json:"query"`
+			OnWhatsApp bool   `json:"on_whatsapp"`
+			JID        string `json:"jid"`
+		}
+		results := make([]checkResult, 0, len(resp))
+		for _, item := range resp {
+			results = append(results, checkResult{Query: item.Query, OnWhatsApp: item.IsIn, JID: item.JID.String()})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(results)
+	})
+
 	// Handler for downloading media
 	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
