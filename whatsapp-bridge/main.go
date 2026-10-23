@@ -855,6 +855,53 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		})
 	})
 
+	// Handler for setting a group photo from a local JPEG file
+	http.HandleFunc("/api/group/photo", func(w http.ResponseWriter, r *http.Request) {
+		// Only allow POST requests
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			JID       string `json:"jid"`
+			ImagePath string `json:"image_path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.JID == "" || req.ImagePath == "" {
+			http.Error(w, "JID and image path are required", http.StatusBadRequest)
+			return
+		}
+
+		jid, err := types.ParseJID(req.JID)
+		if err != nil || jid.Server != types.GroupServer {
+			http.Error(w, "JID must be a group (@g.us)", http.StatusBadRequest)
+			return
+		}
+
+		avatar, err := os.ReadFile(req.ImagePath)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read image: %v", err), http.StatusBadRequest)
+			return
+		}
+		// WhatsApp only accepts JPEG avatars
+		if !bytes.HasPrefix(avatar, []byte{0xFF, 0xD8, 0xFF}) {
+			http.Error(w, "Image must be a JPEG", http.StatusBadRequest)
+			return
+		}
+
+		pictureID, err := client.SetGroupPhoto(context.Background(), jid, avatar)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to set group photo: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":    true,
+			"picture_id": pictureID,
+		})
+	})
+
 	// Handler for downloading media
 	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
