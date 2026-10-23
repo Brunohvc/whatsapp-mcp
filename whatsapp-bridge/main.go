@@ -20,6 +20,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal"
+	"github.com/skip2/go-qrcode"
 
 	"bytes"
 
@@ -872,7 +873,12 @@ func main() {
 			if evt.Event == "code" {
 				fmt.Println("\nScan this QR code with your WhatsApp app:")
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
+				// Also save it as an image, for when the terminal is too narrow or out of reach
+				if err := qrcode.WriteFile(evt.Code, qrcode.Medium, 512, "qr.png"); err != nil {
+					logger.Warnf("Failed to save qr.png: %v", err)
+				}
 			} else if evt.Event == "success" {
+				os.Remove("qr.png")
 				connected <- true
 				break
 			}
