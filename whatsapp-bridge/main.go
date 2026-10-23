@@ -759,10 +759,15 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			Query      string `json:"query"`
 			OnWhatsApp bool   `json:"on_whatsapp"`
 			JID        string `json:"jid"`
+			PhoneJID   string `json:"phone_jid"`
 		}
 		results := make([]checkResult, 0, len(resp))
 		for _, item := range resp {
-			results = append(results, checkResult{Query: item.Query, OnWhatsApp: item.IsIn, JID: item.JID.String()})
+			phoneJID := ""
+			if !item.PhoneNumber.IsEmpty() {
+				phoneJID = item.PhoneNumber.String()
+			}
+			results = append(results, checkResult{Query: item.Query, OnWhatsApp: item.IsIn, JID: item.JID.String(), PhoneJID: phoneJID})
 		}
 
 		w.Header().Set("Content-Type", "application/json")
