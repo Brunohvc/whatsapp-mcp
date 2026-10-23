@@ -828,6 +828,24 @@ func main() {
 		return
 	}
 
+	// "whatsapp-bridge logout" unlinks this device from the phone and clears the session
+	if len(os.Args) > 1 && os.Args[1] == "logout" {
+		if client.Store.ID == nil {
+			fmt.Println("No session to log out from")
+			return
+		}
+		if err := client.Connect(); err != nil {
+			logger.Errorf("Failed to connect: %v", err)
+			return
+		}
+		if err := client.Logout(context.Background()); err != nil {
+			logger.Errorf("Failed to log out: %v", err)
+			return
+		}
+		fmt.Println("Logged out: device unlinked from the phone")
+		return
+	}
+
 	// Initialize message store
 	messageStore, err := NewMessageStore()
 	if err != nil {
