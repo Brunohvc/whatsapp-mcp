@@ -902,6 +902,78 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		})
 	})
 
+	// Handler for changing an existing group's settings; only the fields sent are changed
+	http.HandleFunc("/api/group/settings", func(w http.ResponseWriter, r *http.Request) {
+		// Only allow POST requests
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			JID           string `json:"jid"`
+			JoinApproval  *bool  `json:"join_approval"`
+			AdminAddOnly  *bool  `json:"admin_add_only"`
+			AdminEditOnly *bool  `json:"admin_edit_only"`
+			AdminSendOnly *bool  `json:"admin_send_only"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.JID == "" {
+			http.Error(w, "JID is required", http.StatusBadRequest)
+			return
+		}
+
+		jid, err := types.ParseJID(req.JID)
+		if err != nil || jid.Server != types.GroupServer {
+			http.Error(w, "JID must be a group (@g.us)", http.StatusBadRequest)
+			return
+		}
+
+		ctx := context.Background()
+		var errs []string
+		if req.JoinApproval != nil {
+			if err := client.SetGroupJoinApprovalMode(ctx, jid, *req.JoinApproval); err != nil {
+				errs = append(errs, fmt.Sprintf("join_approval: %v", err))
+			}
+		}
+		if req.AdminAddOnly != nil {
+			mode := types.GroupMemberAddModeAllMember
+			if *req.AdminAddOnly {
+				mode = types.GroupMemberAddModeAdmin
+			}
+			if err := client.SetGroupMemberAddMode(ctx, jid, mode); err != nil {
+				errs = append(errs, fmt.Sprintf("admin_add_only: %v", err))
+			}
+		}
+		if req.AdminEditOnly != nil {
+			if err := client.SetGroupLocked(ctx, jid, *req.AdminEditOnly); err != nil {
+				errs = append(errs, fmt.Sprintf("admin_edit_only: %v", err))
+			}
+		}
+		if req.AdminSendOnly != nil {
+			if err := client.SetGroupAnnounce(ctx, jid, *req.AdminSendOnly); err != nil {
+				errs = append(errs, fmt.Sprintf("admin_send_only: %v", err))
+			}
+		}
+
+		current, err := client.GetGroupInfo(ctx, jid)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read group info: %v (errors: %v)", err, errs), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success":         len(errs) == 0,
+			"errors":          errs,
+			"jid":             current.JID.String(),
+			"name":            current.Name,
+			"join_approval":   current.IsJoinApprovalRequired,
+			"member_add_mode": current.MemberAddMode,
+			"admin_edit_only": current.IsLocked,
+			"admin_send_only": current.IsAnnounce,
+		})
+	})
+
 	// Handler for downloading media
 	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
