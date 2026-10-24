@@ -911,11 +911,12 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		}
 
 		var req struct {
-			JID           string `json:"jid"`
-			JoinApproval  *bool  `json:"join_approval"`
-			AdminAddOnly  *bool  `json:"admin_add_only"`
-			AdminEditOnly *bool  `json:"admin_edit_only"`
-			AdminSendOnly *bool  `json:"admin_send_only"`
+			JID           string  `json:"jid"`
+			JoinApproval  *bool   `json:"join_approval"`
+			AdminAddOnly  *bool   `json:"admin_add_only"`
+			AdminEditOnly *bool   `json:"admin_edit_only"`
+			AdminSendOnly *bool   `json:"admin_send_only"`
+			Description   *string `json:"description"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.JID == "" {
 			http.Error(w, "JID is required", http.StatusBadRequest)
@@ -930,6 +931,11 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 
 		ctx := context.Background()
 		var errs []string
+		if req.Description != nil {
+			if err := client.SetGroupDescription(ctx, jid, *req.Description); err != nil {
+				errs = append(errs, fmt.Sprintf("description: %v", err))
+			}
+		}
 		if req.JoinApproval != nil {
 			if err := client.SetGroupJoinApprovalMode(ctx, jid, *req.JoinApproval); err != nil {
 				errs = append(errs, fmt.Sprintf("join_approval: %v", err))
@@ -971,6 +977,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			"member_add_mode": current.MemberAddMode,
 			"admin_edit_only": current.IsLocked,
 			"admin_send_only": current.IsAnnounce,
+			"description":     current.Topic,
 		})
 	})
 
