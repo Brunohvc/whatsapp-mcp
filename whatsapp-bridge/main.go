@@ -981,6 +981,58 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		})
 	})
 
+	// Handler for joining a group by invite link (chat.whatsapp.com/<code>); preview only reads the group info
+	http.HandleFunc("/api/group/join", func(w http.ResponseWriter, r *http.Request) {
+		// Only allow POST requests
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			Link    string `json:"link"`
+			Preview bool   `json:"preview"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Link == "" {
+			http.Error(w, "Link is required", http.StatusBadRequest)
+			return
+		}
+		code := strings.TrimSpace(req.Link)
+		code = strings.TrimPrefix(code, "https://")
+		code = strings.TrimPrefix(code, "chat.whatsapp.com/")
+		code = strings.TrimPrefix(code, "invite/")
+		if i := strings.IndexAny(code, "?/"); i >= 0 {
+			code = code[:i]
+		}
+
+		ctx := context.Background()
+		info, err := client.GetGroupInfoFromLink(ctx, code)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("Failed to read invite link: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		result := map[string]interface{}{
+			"jid":           info.JID.String(),
+			"name":          info.Name,
+			"participants":  len(info.Participants),
+			"join_approval": info.IsJoinApprovalRequired,
+			"joined":        false,
+		}
+		if !req.Preview {
+			// With join approval on, WhatsApp only files a request; the admin still has to accept it
+			if _, err := client.JoinGroupWithLink(ctx, code); err != nil {
+				http.Error(w, fmt.Sprintf("Failed to join group: %v", err), http.StatusInternalServerError)
+				return
+			}
+			result["joined"] = !info.IsJoinApprovalRequired
+			result["pending_approval"] = info.IsJoinApprovalRequired
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	})
+
 	// Handler for downloading media
 	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
