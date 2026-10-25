@@ -205,6 +205,15 @@ type SendMessageRequest struct {
 }
 
 // Function to send a WhatsApp message
+// newMediaHTTPClient is the client for media uploads and downloads. whatsmeow's default has no timeout, and on
+// 24–25/10/2026 one dead HTTP/2 connection to the media server held every upload (and the send behind it) for
+// 13 hours. The timeout fails the request; the HTTP/2 pings drop the dead connection so the next one gets a new one.
+func newMediaHTTPClient(timeout time.Duration) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.HTTP2 = &http.HTTP2Config{SendPingTimeout: 30 * time.Second, PingTimeout: 15 * time.Second}
+	return &http.Client{Transport: transport, Timeout: timeout}
+}
+
 func sendWhatsAppMessage(client *whatsmeow.Client, recipient string, message string, mediaPath string) (bool, string) {
 	if !client.IsConnected() {
 		return false, "Not connected to WhatsApp"
@@ -1136,6 +1145,7 @@ func main() {
 		logger.Errorf("Failed to create WhatsApp client")
 		return
 	}
+	client.SetMediaHTTPClient(newMediaHTTPClient(90 * time.Second))
 
 	// "whatsapp-bridge logout" unlinks this device from the phone and clears the session
 	if len(os.Args) > 1 && os.Args[1] == "logout" {
