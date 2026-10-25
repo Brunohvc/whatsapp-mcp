@@ -978,6 +978,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			"admin_edit_only": current.IsLocked,
 			"admin_send_only": current.IsAnnounce,
 			"description":     current.Topic,
+			"participants":    len(current.Participants),
 		})
 	})
 
